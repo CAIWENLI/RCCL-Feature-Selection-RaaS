@@ -1,0 +1,518 @@
+---
+title: "Customer - Product Predict"
+author: "Caiwen Li"
+date: "1/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load all packages}
+library(RPostgreSQL)
+library(dplyr)
+library(dbplyr)
+library(data.table)
+library(lubridate)
+library(reshape2)
+library(stringr)
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(arules)
+library(arulesViz)
+library(randomForest);
+library(kernlab);
+library(e1071);
+library(nnet);
+library(neuralnet)
+library(fastDummies)
+library(class)
+```
+
+```{r load the data from dream query - Web}
+options(java.parameters = "-Xmx8g")
+library("RJDBC")
+library(RJDBC)
+drv <- JDBC("oracle.jdbc.OracleDriver",classPath="C:/users/7005773/Downloads/ojdbc6.jar")
+con.oracle <- dbConnect(drv, "jdbc:oracle:thin:@//dmmktgp_exa.rccl.com:1689/DMMKTGP.RCCL.COM", "DIGITALBI","^!tRGAD!gk*VVDn4T69h3P2XX%")
+
+pcp.tran.level.web <- paste("
+SELECT A.UCM_CONSUMER_ID,
+       TO_CHAR(A.PASSENGER_ID) AS PASSENGER_ID,
+       CONCAT((CONCAT(CONCAT(A.BOOKING_ID, A.PASSENGER_ID), A.SAIL_DATE)), A.SHIP_CODE) AS KEY_A,
+       CASE WHEN A.PAX_LOYALTY_NUMBER > 0 THEN 1 ELSE 0 END AS PAX_LOYALTY_FLAG,
+       CASE WHEN A.PAX_AGE < 4 THEN 1 ELSE 0 END AS PAX_AGE_UNDER_FOUR,
+       CASE WHEN A.PAX_AGE < 7 AND A.PAX_AGE >= 4 THEN 1 ELSE 0 END AS PAX_AGE_FOUR_TO_SIX,
+       CASE WHEN A.PAX_AGE < 10 AND A.PAX_AGE >= 7 THEN 1 ELSE 0 END AS PAX_AGE_SEVEN_TO_NINE,
+       CASE WHEN A.PAX_AGE < 13 AND A.PAX_AGE >= 10 THEN 1 ELSE 0 END AS PAX_AGE_TEN_TO_TWELVE,
+       CASE WHEN A.PAX_AGE < 17 AND A.PAX_AGE >= 13 THEN 1 ELSE 0 END AS PAX_AGE_THIRTEEN_SIXTEEN,
+       CASE WHEN A.PAX_AGE < 19 AND A.PAX_AGE >= 17 THEN 1 ELSE 0 END AS PAX_AGE_SEVENTEEN_EIGHTEEN,
+       CASE WHEN A.PAX_AGE < 22 AND A.PAX_AGE >= 19 THEN 1 ELSE 0 END AS PAX_AGE_NINETEEN_TWENTYONE,
+       CASE WHEN A.PAX_AGE < 25 AND A.PAX_AGE >= 22 THEN 1 ELSE 0 END AS PAX_AGE_TWENTYTWO_TWENTYFOUR,
+       CASE WHEN A.PAX_AGE < 35 AND A.PAX_AGE >= 25 THEN 1 ELSE 0 END AS PAX_AGE_TWENTYFIVE_THIRTYFOUR,
+       CASE WHEN A.PAX_AGE < 45 AND A.PAX_AGE >= 35 THEN 1 ELSE 0 END AS PAX_AGE_THIRTYFIVE_FOURTYFOUR,
+       CASE WHEN A.PAX_AGE < 55 AND A.PAX_AGE >= 45 THEN 1 ELSE 0 END AS PAX_AGE_FOURTYFIVE_FIFTYFOUR,
+       CASE WHEN A.PAX_AGE < 65 AND A.PAX_AGE >= 55 THEN 1 ELSE 0 END AS PAX_AGE_FIFTYFIVE_SIXTYFOUR,
+       CASE WHEN A.PAX_AGE < 75 AND A.PAX_AGE >= 65 THEN 1 ELSE 0 END AS PAX_AGE_SIXTYFIVE_SEVENTYFOUR,
+       CASE WHEN A.PAX_AGE < 90 AND A.PAX_AGE >= 75 THEN 1 ELSE 0 END AS PAX_AGE_SEVENTYFIVE_EIGHTYNINE,
+       CASE WHEN A.PAX_AGE >= 90 THEN 1 ELSE 0 END AS PAX_AGE_OVER_NINETY,
+       A.PAX_AGE,
+       A.PAX_GENDER_CODE,
+       A.PAX_CITIZENSHIP,
+       A.PAX_ONBOARD_LANGUAGE,
+       A.PAX_DOCUMENTATION_LANGUAGE,
+       A.BRAND,
+       A.SHIP_CODE,
+       A.SAIL_DATE,
+       A.SAIL_NIGHTS,
+       A.RDSS_PRODUCT_CODE,
+       A.META_PRODUCT_CODE,
+       A.BOOKING_OFFICE,
+       A.TKT_DIGITAL_CHANNEL,
+       A.NET_TICKET_REVENUE_USD,
+       A.BOUGHT_PRE_CRUISE,
+       A.RATE_CAT_CLASS,
+       A.ADJUSTED_OWNING_CHANNEL,
+       AA.BOOKING_STATUS,
+       AA.CHANNEL,
+       AA.ASR_PRODUCT_BOOKING_DTM,
+       CONCAT((CONCAT(CONCAT(AA.BOOKING_ID, AA.PASSENGER_ID), AA.SAIL_DATE)), AA.SHIP_CODE) AS KEY_AA,
+       AA.PRODUCT_ID,
+       AA.ASR_BOOKING_ID,
+       AA.ORDER_ID,
+       AA.ADJUSTED_OWNER_DESC,
+       CASE
+			 WHEN AA.COMPONENT_NAME LIKE '%Izumi%' THEN 'IZUMI'
+			 WHEN AA.COMPONENT_NAME LIKE '%150 Cen%' THEN '150 CENTRAL PARK'
+			 WHEN AA.COMPONENT_NAME LIKE '%Chops%' THEN 'CHOPS GRILLE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Wonderla%' THEN 'WONDERLAND'
+			 WHEN AA.COMPONENT_NAME LIKE '%Hooked%' THEN 'HOOKED'
+			 WHEN AA.COMPONENT_NAME LIKE '%Sabor%' THEN 'SABOR'
+			 WHEN AA.COMPONENT_NAME LIKE '%Samba%' THEN 'SAMBA'
+			 WHEN AA.COMPONENT_NAME LIKE '%Eden%' THEN 'EDEN'
+			 WHEN AA.COMPONENT_NAME LIKE '%Murano%' THEN 'MURANO'
+			 WHEN AA.COMPONENT_NAME LIKE '%Petit%' THEN 'PETIT CHEF'
+			 WHEN AA.COMPONENT_NAME LIKE '%Silk Ha%' THEN 'SILK HARVEST'
+			 WHEN AA.COMPONENT_NAME LIKE '%Fine Cu%' THEN 'FINE CUT'
+			 WHEN AA.COMPONENT_NAME LIKE '%Raw on%' THEN 'RAW ON FIVE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Lawn%' THEN 'LAWN CLUB'
+			 WHEN AA.COMPONENT_NAME LIKE '%Hot Pot%' THEN 'HOT POT'
+			 WHEN AA.COMPONENT_NAME LIKE '%Teppany%' THEN 'TEPPANYAKI'
+			 WHEN AA.COMPONENT_NAME LIKE '%Qsine%' THEN 'QSINE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Rooftop%' THEN 'ROOFTOP GRILL'
+			 WHEN AA.COMPONENT_NAME LIKE '%Porch%' THEN 'PORCH'
+			 WHEN AA.COMPONENT_NAME LIKE '%Alcoves%' THEN 'ALCOVES'
+			 WHEN AA.COMPONENT_NAME LIKE '%Captain%' THEN 'CAPTAIN JACKS'
+			 WHEN AA.COMPONENT_NAME LIKE '%Table%' THEN 'CHEFS TABLE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Giovan%' THEN 'GIOVANNIS'
+			 WHEN AA.COMPONENT_NAME LIKE '%Rita%' THEN 'RITAS CANTINA'
+			 WHEN AA.COMPONENT_NAME LIKE '%Sichuan%' THEN 'SICHUAN'
+			 WHEN AA.COMPONENT_NAME LIKE '%Solarium%' THEN 'SOLARIUM'
+			 WHEN AA.COMPONENT_NAME LIKE '%Sushi on Fi%' THEN 'SUSHI ON FIVE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Tuscan%' THEN 'TUSCAN GRILLE'
+			 WHEN AA.COMPONENT_NAME LIKE '%Jamie%' THEN 'JAMIES ITALIAN'
+		   ELSE AA.COMPONENT_NAME 
+	     END AS COMPONENT_NAME_ADJ,
+       AA.COMPONENT_CODE,
+       ROUND(AA.SAIL_DATE - AA.ASR_PRODUCT_BOOKING_DTM, 2) AS DAYS_BOOKED_PRECRUISE,
+       AA.AMT_GUEST_PAID_BKC,
+       AA.TOTAL_REVENUE_USD,
+       BB.BOOKING_NUM_OF_PAX,
+       BB.BOOKING_GENDER,
+       BB.BOOKING_DRINKING_ADULTS,
+	   BB.BOOKING_NON_DRINKING_ADULTS,
+	   BB.BOOKING_COLLEGE_AGE,
+	   BB.BOOKING_YOUNGER_THAN_EIGHTEEN,
+	   BB.BOOKING_YOUNGER_THAN_THIRTEEN,
+	   BB.BOOKING_YOUNGER_THAN_SIX,
+	   BB.BOOKING_YOUNGER_THAN_THREE,
+	   BB.BOOKING_COMPOSITION
+FROM DIGITALBI.DREAM_QRY A
+LEFT JOIN DIGITALBI.DREAM_PCP_ASR_DETAIL AA
+ON CONCAT((CONCAT(CONCAT(A.BOOKING_ID, A.PASSENGER_ID), A.SAIL_DATE)), A.SHIP_CODE) = CONCAT((CONCAT(CONCAT(AA.BOOKING_ID, AA.PASSENGER_ID), AA.SAIL_DATE)), AA.SHIP_CODE)
+LEFT JOIN
+	(SELECT B.BOOKING_ID,
+	        B.SAIL_DATE,
+	        COUNT(DISTINCT B.PASSENGER_ID) AS BOOKING_NUM_OF_PAX,
+	        SUM(CASE WHEN B.PAX_GENDER_CODE LIKE 'M%' THEN 1 ELSE 0 END) AS BOOKING_NUM_OF_MALE,
+	        CASE WHEN (SUM(CASE WHEN B.PAX_GENDER_CODE LIKE 'M%' THEN 1 ELSE 0 END)/COUNT(DISTINCT B.PASSENGER_ID)) = 1 THEN 'AllMale'
+	        WHEN (SUM(CASE WHEN B.PAX_GENDER_CODE LIKE 'M%' THEN 1 ELSE 0 END)/COUNT(DISTINCT B.PASSENGER_ID)) = 0 THEN 'AllFemale' ELSE 'Mixed' 
+	        END AS BOOKING_GENDER,
+	        CASE WHEN MIN(B.PAX_AGE) > 21 THEN 1 ELSE 0 END AS BOOKING_DRINKING_ADULTS,
+	        CASE WHEN MIN(B.PAX_AGE) >= 18 AND MIN(B.PAX_AGE) < 21 THEN 1 ELSE 0 END AS BOOKING_NON_DRINKING_ADULTS,
+	        CASE WHEN MAX(B.PAX_AGE) < 24 AND MIN(B.PAX_AGE) >=18 THEN 1 ELSE 0 END AS BOOKING_COLLEGE_AGE,
+	        CASE WHEN MIN(B.PAX_AGE) <= 18 AND MIN(B.PAX_AGE) > 13 THEN 1 ELSE 0 END AS BOOKING_YOUNGER_THAN_EIGHTEEN,
+	        CASE WHEN MIN(B.PAX_AGE) <= 13 AND MIN(B.PAX_AGE) > 6 THEN 1 ELSE 0 END AS BOOKING_YOUNGER_THAN_THIRTEEN,
+	        CASE WHEN MIN(B.PAX_AGE) <= 6 AND MIN(B.PAX_AGE) > 3 THEN 1 ELSE 0 END AS BOOKING_YOUNGER_THAN_SIX,
+	        CASE WHEN MIN(B.PAX_AGE) <= 3 THEN 1 ELSE 0 END AS BOOKING_YOUNGER_THAN_THREE,
+	        CASE WHEN COUNT(DISTINCT(PASSENGER_ID)) > 2 AND COUNT(CASE WHEN PAX_GENDER_CODE='M' THEN 1 END )>=1
+			AND COUNT(CASE WHEN PAX_GENDER_CODE='M' THEN 1 END )<COUNT(DISTINCT(PASSENGER_ID)) AND MIN(PAX_AGE)<21 AND (MAX(PAX_AGE)-MIN(PAX_AGE))>10 THEN 'FAMILIES'
+		    WHEN COUNT(DISTINCT(PASSENGER_ID)) = 2 AND MIN(PAX_AGE)<21 AND (MAX(PAX_AGE)-MIN(PAX_AGE))>10 THEN 'SINGLE_PARENT'
+		    WHEN COUNT(DISTINCT(PASSENGER_ID)) = 1 THEN 'SINGLE_CRUISER' WHEN (COUNT(DISTINCT B.PASSENGER_ID)) = 2 AND (SUM(CASE WHEN B.PAX_GENDER_CODE LIKE 'M%' THEN 1 ELSE 0 END)) = 1
+		    AND MAX(B.PAX_AGE) - MIN(B.PAX_AGE) < 10 THEN 'BOOKING_COUPLE'
+		    ELSE 'OTHER' 
+		    END AS BOOKING_COMPOSITION
+     FROM DIGITALBI.DREAM_QRY B
+     GROUP BY B.BOOKING_ID, B.SAIL_DATE
+     ) BB
+ON BB.BOOKING_ID = A.BOOKING_ID
+AND BB.SAIL_DATE = A.SAIL_DATE
+WHERE AA.TOTAL_REVENUE_USD > 0
+      AND AA.ASR_PRODUCT_BOOKING_DTM >= TO_DATE('2018-01-01 00:00:00', 'YYYY-MM-DD HH24:MI:SS')
+      AND AA.ASR_PRODUCT_BOOKING_DTM <= TO_DATE('2019-12-31 23:59:59', 'YYYY-MM-DD HH24:MI:SS')
+      AND AA.CHANNEL IN 'Web'
+      AND AA.BOOKING_STATUS_NAME IN 'Booked'
+      AND A.SHIP_CODE IN 'AL'
+      AND A.RDSS_PRODUCT_CODE IN 'CARIBEST'
+", sep="")
+
+pcp.tran.level.web.query <- dbGetQuery(con.oracle, pcp.tran.level.web)
+
+pcp.tran.level.web.query$THE_KEY_T <- NULL
+pcp.tran.level.web.query$THE_KEY_T1 <- NULL
+pcp.tran.level.web.query$KEY_1 <- NULL
+
+tbl_vars(pcp.tran.level.web.query)
+summary(pcp.tran.level.web.query)
+```
+
+```{r data cleaning & data preparing}
+data = pcp.tran.level.web.query
+data$SAIL_WEEK <- week(data$SAIL_DATE)
+data$SAIL_DATE <- as.Date(data$SAIL_DATE)
+data$ASR_PRODUCT_BOOKING_DTM <- as.Date(data$ASR_PRODUCT_BOOKING_DTM)
+data$BOOK_WEEK <- week(data$ASR_PRODUCT_BOOKING_DTM)
+data$BOOK_DAY <- weekdays(data$ASR_PRODUCT_BOOKING_DTM)
+data$PAX_IS_KID <- ifelse(data$PAX_AGE < 18, 1, 0)
+data$PAX_IS_DRINKING_AGE <- ifelse(data$PAX_AGE >= 21, 1, 0)
+
+data$SAIL_DATE <- NULL
+data$BOOKING_ID <- NULL
+summary(data)
+tbl_vars(data)
+
+data.filter <- data %>% 
+  select(PASSENGER_ID
+,PAX_LOYALTY_FLAG              
+,PAX_AGE
+,PAX_IS_KID
+,PAX_IS_DRINKING_AGE
+,PAX_AGE_UNDER_FOUR            
+,PAX_AGE_FOUR_TO_SIX
+,PAX_AGE_SEVEN_TO_NINE
+,PAX_AGE_TEN_TO_TWELVE
+,PAX_AGE_THIRTEEN_SIXTEEN      
+,PAX_AGE_SEVENTEEN_EIGHTEEN
+,PAX_AGE_NINETEEN_TWENTYONE
+,PAX_AGE_TWENTYTWO_TWENTYFOUR
+,PAX_AGE_TWENTYFIVE_THIRTYFOUR 
+,PAX_AGE_THIRTYFIVE_FOURTYFOUR
+,PAX_AGE_FOURTYFIVE_FIFTYFOUR
+,PAX_AGE_FIFTYFIVE_SIXTYFOUR
+,PAX_AGE_SIXTYFIVE_SEVENTYFOUR 
+,PAX_AGE_SEVENTYFIVE_EIGHTYNINE
+,PAX_AGE_OVER_NINETY
+,PAX_GENDER_CODE
+,PAX_CITIZENSHIP
+,PAX_ONBOARD_LANGUAGE          
+,PAX_DOCUMENTATION_LANGUAGE
+,BOOKING_OFFICE
+,TKT_DIGITAL_CHANNEL           
+,NET_TICKET_REVENUE_USD
+,BOUGHT_PRE_CRUISE
+,RATE_CAT_CLASS
+,ADJUSTED_OWNING_CHANNEL
+,BOOKING_STATUS_NAME           
+,COMPONENT_NAME_ADJ            
+,COMPONENT_CODE
+,DAYS_BOOKED_PRECRUISE
+,BOOKING_NUM_OF_PAX
+,BOOKING_GENDER
+,BOOKING_DRINKING_ADULTS
+,BOOKING_NON_DRINKING_ADULTS
+,BOOKING_COLLEGE_AGE           
+,BOOKING_YOUNGER_THAN_EIGHTEEN
+,BOOKING_YOUNGER_THAN_THIRTEEN
+,BOOKING_YOUNGER_THAN_SIX
+,BOOKING_YOUNGER_THAN_THREE    
+,BOOKING_COMPOSITION
+,SAIL_WEEK
+,BOOK_WEEK
+,BOOK_DAY                      
+)
+
+data.filter[is.na(data.filter)] <- 0
+
+data.filter$COMPONENT_CODE <- NULL
+
+write.csv(data.filter,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/data.classfication.test.csv")
+
+data.filter.pass <- fastDummies::dummy_cols(data.filter, select_columns = c("COMPONENT_NAME_ADJ"))
+
+data.filter.pass[,c(1:46)] <- as.character(data.filter.pass[,c(1:46)])
+
+
+data.pass <- data.filter.pass %>% 
+  group_by(PASSENGER_ID
+,PAX_LOYALTY_FLAG              
+,PAX_AGE
+,PAX_IS_KID
+,PAX_IS_DRINKING_AGE
+,PAX_AGE_UNDER_FOUR            
+,PAX_AGE_FOUR_TO_SIX
+,PAX_AGE_SEVEN_TO_NINE
+,PAX_AGE_TEN_TO_TWELVE
+,PAX_AGE_THIRTEEN_SIXTEEN      
+,PAX_AGE_SEVENTEEN_EIGHTEEN
+,PAX_AGE_NINETEEN_TWENTYONE
+,PAX_AGE_TWENTYTWO_TWENTYFOUR
+,PAX_AGE_TWENTYFIVE_THIRTYFOUR 
+,PAX_AGE_THIRTYFIVE_FOURTYFOUR
+,PAX_AGE_FOURTYFIVE_FIFTYFOUR
+,PAX_AGE_FIFTYFIVE_SIXTYFOUR
+,PAX_AGE_SIXTYFIVE_SEVENTYFOUR 
+,PAX_AGE_SEVENTYFIVE_EIGHTYNINE
+,PAX_AGE_OVER_NINETY
+,PAX_GENDER_CODE
+,PAX_CITIZENSHIP
+,PAX_ONBOARD_LANGUAGE          
+,PAX_DOCUMENTATION_LANGUAGE
+,BOOKING_OFFICE
+,TKT_DIGITAL_CHANNEL           
+,NET_TICKET_REVENUE_USD
+,BOUGHT_PRE_CRUISE
+,RATE_CAT_CLASS
+,ADJUSTED_OWNING_CHANNEL
+,BOOKING_STATUS_NAME           
+,BOOKING_NUM_OF_PAX
+,BOOKING_GENDER
+,BOOKING_DRINKING_ADULTS
+,BOOKING_NON_DRINKING_ADULTS
+,BOOKING_COLLEGE_AGE           
+,BOOKING_YOUNGER_THAN_EIGHTEEN
+,BOOKING_YOUNGER_THAN_THIRTEEN
+,BOOKING_YOUNGER_THAN_SIX
+,BOOKING_YOUNGER_THAN_THREE    
+,BOOKING_COMPOSITION
+,SAIL_WEEK
+) %>% 
+summarize_if(is.numeric, sum, na.rm=TRUE)
+
+data.pass <- fastDummies::dummy_cols(data.pass, select_columns = c('PAX_CITIZENSHIP'
+         ,'PAX_ONBOARD_LANGUAGE'
+         ,'PAX_GENDER_CODE'
+         ,'PAX_DOCUMENTATION_LANGUAGE'                 
+         ,'BOOKING_OFFICE'
+         ,'BOUGHT_PRE_CRUISE'
+         ,'TKT_DIGITAL_CHANNEL'           
+         ,'RATE_CAT_CLASS'
+         ,'ADJUSTED_OWNING_CHANNEL'
+         ,'BOOKING_GENDER'
+         ,'BOOKING_COMPOSITION'))
+
+
+drops <- c('PAX_CITIZENSHIP'
+         ,'PAX_ONBOARD_LANGUAGE'
+         ,'PAX_GENDER_CODE'
+         ,'PAX_DOCUMENTATION_LANGUAGE'                 
+         ,'BOOKING_OFFICE'
+         ,'BOUGHT_PRE_CRUISE'
+         ,'TKT_DIGITAL_CHANNEL'           
+         ,'RATE_CAT_CLASS'
+         ,'ADJUSTED_OWNING_CHANNEL'
+         ,'BOOKING_GENDER'
+         ,'BOOKING_COMPOSITION')
+
+data.pass <- data.pass[ ,!(names(data.pass) %in% drops)]
+
+write.csv(data.pass,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/data.pass.csv")
+tbl_vars(data.pass)
+
+data.pass$BOOKING_STATUS_NAME <- NULL
+
+data.pass.water <- data.pass[,c(1:30,75,534:755)]
+data.pass.jet.coco <- data.pass[,c(1:30,383,534:755)]
+tbl_vars(data.pass.jet.coco)
+write.csv(data.pass.water,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/data.pass.water.csv")
+write.csv(data.pass.jet.coco,"C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Outputs/data.pass.jet.coco.csv")
+```
+
+```{r mean calculation}
+data <- read_csv("C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/data.classfication.test.csv")
+product.name <- read_csv("C:/Users/7005773/Desktop/Code/R Code/RCCL/Assets/Inputs/data.prod.mean.csv")
+
+data$X1 <- NULL
+
+sapply(data, class)
+
+data$TKT_DIGITAL_CHANNEL <- lapply(data$TKT_DIGITAL_CHANNEL, toupper)
+data$ADJUSTED_OWNING_CHANNEL <- lapply(data$ADJUSTED_OWNING_CHANNEL, toupper)
+data$BOOKING_STATUS_NAME <- lapply(data$BOOKING_STATUS_NAME, toupper)
+data$BOOK_DAY <- lapply(data$BOOK_DAY, toupper)
+data$PAX_DOCUMENTATION_LANGUAGE <- NULL
+
+library(tidyverse)
+data.city <- data %>% 
+ group_by(PAX_CITIZENSHIP) %>% 
+ summarise(N_CITY = n()) 
+
+data <- data %>% 
+  left_join(data.city, by = "PAX_CITIZENSHIP") %>% 
+  mutate(PAX_CITIZENSHIP_FIX = ifelse(N_CITY > 1000,  PAX_CITIZENSHIP, "OTHER"))
+
+data$PAX_CITIZENSHIP <- NULL
+
+data.lan <- data %>% 
+ group_by(PAX_ONBOARD_LANGUAGE) %>% 
+ summarise(N_LAN = n()) 
+
+data <- data %>% 
+  left_join(data.lan, by = "PAX_ONBOARD_LANGUAGE") %>% 
+  mutate(PAX_ONBOARD_LANGUAGE_FIX = ifelse(N_LAN > 1000,  PAX_ONBOARD_LANGUAGE, "OTHER"))
+
+data$PAX_ONBOARD_LANGUAGE <- NULL
+
+data.office <- data %>% 
+ group_by(BOOKING_OFFICE) %>% 
+ summarise(N_OFFICE = n()) 
+
+data <- data %>% 
+  left_join(data.office, by = "BOOKING_OFFICE") %>% 
+  mutate(BOOKING_OFFICE_FIX = ifelse(N_LAN > 5000,  BOOKING_OFFICE, "OTHER"))
+
+data$BOOKING_OFFICE <- NULL
+
+data.dumm <- fastDummies::dummy_cols(data, select_columns = c('PAX_CITIZENSHIP_FIX'
+         ,'PAX_ONBOARD_LANGUAGE_FIX'
+         ,'PAX_GENDER_CODE'
+         ,'BOOKING_OFFICE_FIX'
+         ,'BOUGHT_PRE_CRUISE'
+         ,'TKT_DIGITAL_CHANNEL'           
+         ,'RATE_CAT_CLASS'
+         ,'ADJUSTED_OWNING_CHANNEL'
+         ,'BOOKING_GENDER'
+         ,"BOOKING_STATUS_NAME"
+         ,'BOOKING_COMPOSITION'
+         ,"BOOK_DAY"))
+
+drops <- c('PAX_CITIZENSHIP_FIX'
+         ,'PAX_ONBOARD_LANGUAGE_FIX'
+         ,'PAX_GENDER_CODE'
+         ,'BOOKING_OFFICE_FIX'
+         ,'BOUGHT_PRE_CRUISE'
+         ,'TKT_DIGITAL_CHANNEL'           
+         ,'RATE_CAT_CLASS'
+         ,'ADJUSTED_OWNING_CHANNEL'
+         ,'BOOKING_GENDER'
+         ,"BOOKING_STATUS_NAME"
+         ,'BOOKING_COMPOSITION'
+         ,"BOOK_DAY")
+
+data.dumm <- data.dumm[ ,!(names(data.dumm) %in% drops)]
+
+tbl_vars(data.dumm)
+
+data.dumm$PASSENGER_ID <- as.character(data.dumm$PASSENGER_ID)
+
+data.prod <- data.dumm %>% 
+  group_by(COMPONENT_NAME_ADJ) %>% 
+  summarize_if(is.numeric, mean) 
+
+data.pass <- data.dumm %>% 
+  group_by(COMPONENT_NAME_ADJ) %>% 
+  summarize(PASS = n_distinct(PASSENGER_ID))
+
+data.prod.mean <- cbind(data.pass, data.prod)
+
+data.prod.mean$COMPONENT_NAME_ADJ <- NULL
+data.total <-  data.dumm %>% 
+  summarize_if(is.numeric, mean) 
+
+data.pass.total <- data.dumm %>% 
+  summarize(PASS = n_distinct(PASSENGER_ID))
+
+data.total.mean <- cbind(data.pass.total, data.total)
+
+data.prod.mean <- data.prod.mean[,c(2,1,3:99)]
+
+
+data.prod.mean$COMPONENT_NAME_ADJ <- gsub("[[:punct:]]", "", data.prod.mean$COMPONENT_NAME_ADJ)
+data.prod.mean$COMPONENT_NAME_ADJ <- gsub("[][!#$%()*,.:;<=>@^_`|~.{}]", "", data.prod.mean$COMPONENT_NAME_ADJ)
+data.prod.mean$COMPONENT_NAME_ADJ <- gsub("[[:digit:]]+", "", data.prod.mean$COMPONENT_NAME_ADJ)
+data.prod.mean$COMPONENT_NAME_ADJ <- lapply(data.prod.mean$COMPONENT_NAME_ADJ, toupper)
+## data.prod.mean$COMPONENT_NAME_ADJ <- gsub(" *\\b[[:alpha:]]{1,2}\\b *", " ", data.prod.mean$COMPONENT_NAME_ADJ) 
+data.prod.mean$COMPONENT_NAME_ADJ <- trimws(data.prod.mean$COMPONENT_NAME_ADJ)
+## data.prod.mean$COMPONENT_NAME_ADJ <- gsub("\\s+", "_", data.prod.mean$COMPONENT_NAME_ADJ)
+data.prod.mean$COMPONENT_NAME_ADJ <- gsub(' +',' ',data.prod.mean$COMPONENT_NAME_ADJ) 
+
+write.csv(data.prod.mean,"C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/data.prod.mean.csv")
+write.csv(data.total.mean,"C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/data.total.mean.csv")
+```
+
+```{r selection top 20 features}
+data.prod.index <- read_csv("C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/data.prod.index.csv")
+
+sapply(data.prod.index, class)
+
+i <- c(8:94)
+data.prod.index[, i] <- lapply(data.prod.index[, i], function(x) as.numeric(as.character(x)))
+
+data.prod.index[is.na(data.prod.index)] <- 0
+
+sapply(data.prod.index, class)
+
+k <- 10
+top.features <- as.data.frame(t(apply(data.prod.index[,c(8:94)],1,function(x)names(data.prod.index[,c(8:94)])[sort(head(order(x, decreasing = TRUE),k))])))
+
+prod.top.features <- cbind(data.prod.index[,c(1:7)],top.features)
+
+tbl_vars(prod.top.features)
+
+bottom.features <- as.data.frame(t(apply(data.prod.index[,c(8:94)],1,function(x)names(data.prod.index[,c(8:94)])[sort(head(order(x, decreasing = FALSE),k))])))
+
+prod.top.features <- cbind(prod.top.features, bottom.features)
+
+colnames(prod.top.features) <- c("Product Name", "Passengers", "Cruise Tickets Price", "Pax Age", "Sail Week", "Booking Week", "Loyalty Flag",
+                                 "Top No 10 Feature", 
+                                 "Top No 9 Feature", 
+                                 "Top No 8 Feature",
+                                 "Top No 7 Feature", 
+                                 "Top No 6 Feature",
+                                 "Top No 5 Feature",
+                                 "Top No 4 Feature",
+                                 "Top No 3 Feature", 
+                                 "Top No 2 Feature", 
+                                 "Top No 1 Feature",
+                                 "Bottom No 1 Feature",
+                                 "Bottom No 2 Feature",
+                                 "Bottom No 3 Feature",
+                                 "Bottom No 4 Feature",
+                                 "Bottom No 5 Feature",
+                                 "Bottom No 6 Feature",
+                                 "Bottom No 7 Feature",
+                                 "Bottom No 8 Feature",
+                                 "Bottom No 9 Feature",
+                                 "Bottom No 10 Feature")
+
+write.csv(prod.top.features,"C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/prod.top.features.csv")
+
+
+```
+
+```{r top 20 features selection for customer}
+data.prod.index$PASS_INDEX <- data.prod.index$PASS/mean(data.prod.index$PASS)*100
+
+features <- colnames(data.prod.index[,8:94])
+
+features.cal <- data.prod.index[,features]*data.prod.index$PASS_INDEX
+prod.features.total <- cbind(features.cal, data.prod.index)
+
+prod.top.features.total <- prod.features.total[,c(1:94,182)]
+
+write.csv(prod.top.features.total,"C:/Users/7005773/Desktop/Work/Code/R Code/RCCL/Assets/Outputs/prod.top.features.total.csv")
+```
+
