@@ -1,0 +1,257 @@
+---
+title: "Introductory tutorial to text clustering with R"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r Initializing the script}
+rm(list = ls()) # Cleaning environment
+options(header = FALSE, stringsAsFactors = FALSE, fileEncoding = "latin1")
+
+# Loading the packages that will be used
+list.of.packages <- c("tm", "dbscan", "proxy", "colorspace", "quanteda" , "magrittr") 
+require(quanteda)
+require(magrittr)
+install.packages('quanteda')
+library(quanteda)
+
+# (downloading and) requiring packages
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) 
+  install.packages(new.packages)
+for (p in list.of.packages) 
+  require(p, character.only = TRUE)
+```
+
+```{r load the data}
+dataframe <- read.csv("/Users/7005773/Desktop/com_name.csv")
+qdfm <- dfm(as.character(dataframe))
+head(qdfm, nfeat = 10)
+```
+
+# 0. The dataset, and the goal to achieve
+
+## Opening notes on R
+
+As you will notice, variables will contain dot (".") in their name.
+This might repel some people because the dot uses to be an operator used in structure and/or objects operations.
+This is not the case in R, and the character is somehow used as a semantic comfort for variable naming.
+
+## Opening notes on the problem
+
+We are going to cluster a dataset consisting of health news tweets. These short sentences belong to one of the 16 sources of news considered in the dataset.
+We are then facing a multi-label classifying problem, with `num_classes = 16`.
+
+```{r Setting the hyper-parameter}
+truth.K <- 16
+```
+
+# 1. Data acquisition
+
+We are about to download directly the data from the *UCI Machine Learning repository*.
+Thanks to native functions, we are able to download the zip file, extract it and fill a dataframe with all the text files read iteratively.
+
+```{r Downloading and reading the data}
+# Creating the empty dataset with the formatted columns
+library(dplyr)
+
+# Read data and remove special characters
+dataframe <- dataframe %>%
+  select(COMPONENT_NAME_ADJ)%>%
+  mutate(COMPONENT_NAME_ADJ = gsub("[^[:alnum:]]",' ',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("%The%",'',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("%an%",'',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("%A%",'',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("x",' ',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("%All%",' ',COMPONENT_NAME_ADJ),
+         COMPONENT_NAME_ADJ = gsub("%all%",' ',COMPONENT_NAME_ADJ))
+  
+  # Trick to ignore last part of tweets which content contains the split character "|"
+  # No satisfying solution has been found to split (as in Python) and merging extra-columns with the last one
+  news.data <- news.data[news.data$content != "", ] 
+  news.data['label'] = news.label # We add the label of the tweet 
+  
+  # Only considering a little portion of data ...
+  # ... because handling sparse matrix for generic usage is a pain
+  news.data <- head(news.data, floor(nrow(news.data) * 0.05))
+  dataframe <- rbind(dataframe, news.data)
+
+# Deleting the temporary directory
+unlink(target.directory, recursive =  TRUE)
+```
+
+As you may have already seen, some problems have been trickily avoided.
+First, as far as I know, no easy method is possible to merge extra columns (for extra separator in the text) with the last. The choice has been to ignore these news lines (oddly formatted then) and to keep the truncated data for the associated beginning line.
+
+Second, a tiny fraction of the data is kept. Indeed, as we will be using TF-IDF for sentence representation, the matrices will be sparse so huge. It obviously exists libraries to handle big data and/or sparse matrices, but here where R fails a lot compared to Python in my opinion : there is low compatibility between these external structures and processing packages (clustering, classifiers, ...)
+
+# 2. Preprocessing the data
+
+## Manual preprocessing
+
+The only manual preprocessing that we will do is to remove the URLs in the tweets. They may help to cluster if a specific "url shortener" is used by a health news source but it is not a very common text resource to handle in NLP and moreover is a kind of cheat in the clustering process.
+
+```{r Manual preprocessing}
+sentences <- sub("http://([[:alnum:]|[:punct:]])+", '', dataframe$content)
+```
+
+## Automatic preprocessing
+
+For common preprocessing problems, we are going to use a package that facilitates a lot the tasks. 
+This help is appreciated because R is *not* the perfect tool to process and computes on characters (a lot harder compared to Python)
+This library is *tm* (*T*ext *M*ining)
+
+```{r Automatic preprocessing}
+install.packages('SnowballC')
+library(SnowballC)
+corpus = VCorpus(VectorSource(dataframe))
+
+corpus
+# Cleaning up
+
+# Handling UTF-8 encoding problem from the dataset
+corpus.cleaned <- tm::tm_map(corpus, function(x) iconv(x, to='UTF-8-MAC', sub='byte')) 
+corpus.cleaned <- tm::tm_map(corpus, tm::removeWords, tm::stopwords('english')) # Removing stop-words
+corpus.cleaned <- tm::tm_map(corpus, tm::stemDocument, language = "english") # Stemming the words 
+corpus.cleaned <- tm::tm_map(corpus.cleaned, tm::stripWhitespace) # Trimming excessive whitespaces
+```
+
+# 3. Text representation
+
+Now, we have a sequence of cleaned sentences that we can use to build our TF-IDF matrix.
+From this result, we will be able to execute every numerical processes that we want, such as clustering.
+
+```{r Representation and distance matrices}
+dtm <- DocumentTermMatrix(dataframe, control = list(weighting = function(x) weightTf, stopwords = FALSE))
+
+# Building the feature matrices
+tdm <- tm::DocumentTermMatrix(corpus.cleaned)
+frequentTerms1 <- as.data.frame(sort(colSums(as.matrix(tdm)), decreasing = TRUE))
+
+library(dplyr)
+df <- tibble::rownames_to_column(frequentTerms1, "NAME")
+
+colnames(df) <- c("Name", "Frequency")
+tdm.tfidf <- tm::weightTfIdf(tdm) 
+
+corpus.cleaned
+# We remove A LOT of features. R is natively very weak with high dimensional matrix
+# tdm.tfidf <- tm::removeSparseTerms(tdm.tfidf, 0.5)
+
+# There is the memory-problem part
+# - Native matrix isn't "sparse-compliant" in the memory
+# - Sparse implementations aren't necessary compatible with clustering algorithms
+tfidf.matrix <- as.matrix(tdm.tfidf)
+tfidf.matrix
+# Cosine distance matrix (useful for specific clustering algorithms)
+dist.matrix = proxy::dist(tfidf.matrix, method = "cosine")
+dist.matrix
+```
+
+# 4. Running the clustering algorithms
+
+## Partitioning clustering
+
+As a partitioning clustering, we will use the famous K-means algorithm. As we know the dataset, we can define properly the number of awaited clusters
+
+```{r Partitioning clustering}
+clustering.kmeans <- kmeans(tfidf.matrix, truth.K)
+```
+
+## Hierarchical clustering
+
+R comes with an easy interface to run hierarchical clustering. All we have to define is the clustering criterion and the pointwise distance matrix.
+We will be using the Ward's method as the clustering criterion.
+
+```{r Hierarchical clustering}
+clustering.hierarchical <- hclust(dist.matrix, method = "ward.D2")
+```
+
+## Density-based clustering
+
+To try the density-based clustering, we will run the HDBScan algorithm. We can run it easily from an external package, *dbscan*.
+Regarding the hyper-parameters of the algorithm, a more or less arbitrary value has been fixed.
+
+```{r Density-based clustering}
+clustering.dbscan <- dbscan::hdbscan(dist.matrix, minPts = 10)
+```
+
+## Stacking clustering
+
+As a final clustering, we will use a hard-voting strategy to merge the results between the 3 previous clustering.
+It goes like this :
+- we define a *master* clustering, all the other are *slave* clusterings. There, we chose arbitrarily the K-means clustering as the *master* clustering
+
+```{r Stacking clustering initialization}
+master.cluster <- clustering.kmeans$cluster
+slave.hierarchical <- cutree(clustering.hierarchical, k = truth.K)
+slave.dbscan <- clustering.dbscan$cluster
+
+# Preparing the stacked clustering
+stacked.clustering <- rep(NA, length(master.cluster)) 
+names(stacked.clustering) <- 1:length(master.cluster)
+```
+
+- Then, for each cluster label in the *master* clustering, we recursively hard vote the cluster on each slave, meaning that we define the corresponding stacked clustering as the most found label on the first cluster, then the most found label of the previous found label in the second cluster.
+- This may result in big clusters, which is a risk of an hard-vote stacking clustering. 
+- It is of course not the perfect solution to stack clusterings, but an easy one to implement in R
+
+```{r Stacking clustering execution}
+for (cluster in unique(master.cluster)) {
+  indexes = which(master.cluster == cluster, arr.ind = TRUE)
+  slave1.votes <- table(slave.hierarchical[indexes])
+  slave1.maxcount <- names(slave1.votes)[which.max(slave1.votes)]
+  
+  slave1.indexes = which(slave.hierarchical == slave1.maxcount, arr.ind = TRUE)
+  slave2.votes <- table(slave.dbscan[indexes])
+  slave2.maxcount <- names(slave2.votes)[which.max(slave2.votes)]
+  
+  stacked.clustering[indexes] <- slave2.maxcount
+}
+```
+
+# 5. Plotting the results
+
+Plotting is one of the best features of R in my opinion. Compared to Python, I find R more convenient, comfortable and easier to create, store and save plots of every kind.
+The native solution is enough complete to cover most of the basics features of a plot. 
+For more aesthetic and complex requirements, it exists the famous *ggplot2* package. It is widely used but a lot less accessible in its usage interface.
+
+To plot our clustering, as our feature spaces is highly dimensional (TF-IDF representation), we will reduce it to 2 thanks to the multi-dimensional scaling.
+This technique is dependent of our distance metric, but in our case with TF-IDF, it is highly preferable than the famous PCA technique.
+
+```{r Plotting}
+points <- cmdscale(dist.matrix, k = 2) # Running the PCA
+palette <- colorspace::diverge_hcl(truth.K) # Creating a color palette
+
+previous.par <- par(mfrow=c(2,2), mar = rep(1.5, 4)) # partitionning the plot space
+plot(points,
+     main = 'K-Means clustering',
+     col = as.factor(master.cluster),
+     mai = c(0, 0, 0, 0),
+     mar = c(0, 0, 0, 0),
+     xaxt = 'n', yaxt = 'n',
+     xlab = '', ylab = '')
+plot(points,
+     main = 'Hierarchical clustering',
+     col = as.factor(slave.hierarchical),
+     mai = c(0, 0, 0, 0),
+     mar = c(0, 0, 0, 0),
+     xaxt = 'n', yaxt = 'n',
+     xlab = '', ylab = '')
+plot(points,
+     main = 'Density-based clustering',
+     col = as.factor(slave.dbscan),
+     mai = c(0, 0, 0, 0),
+     mar = c(0, 0, 0, 0),
+     xaxt = 'n', yaxt = 'n',
+     xlab = '', ylab = '')
+plot(points,
+     main = 'Stacked clustering',
+     col = as.factor(stacked.clustering),
+     mai = c(0, 0, 0, 0),
+     mar = c(0, 0, 0, 0),
+     xaxt = 'n', yaxt = 'n',
+     xlab = '', ylab = '')
+par(previous.par) # recovering the original plot space parameters
+```
