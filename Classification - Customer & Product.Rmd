@@ -38,7 +38,7 @@ options(java.parameters = "-Xmx8g")
 library("RJDBC")
 library(RJDBC)
 drv <- JDBC("oracle.jdbc.OracleDriver",classPath="C:/users/7005773/Downloads/ojdbc6.jar")
-con.oracle <- dbConnect(drv, "jdbc:oracle:thin:@//dmmktgp_exa.rccl.com:1689/DMMKTGP.RCCL.COM", "DIGITALBI","^!tRGAD!gk*VVDn4T69h3P2XX%")
+con.oracle <- dbConnect(drv, "xx", "xx","xx")
 
 pcp.tran.level.web <- paste("
 SELECT A.UCM_CONSUMER_ID,
